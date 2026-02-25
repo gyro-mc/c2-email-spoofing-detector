@@ -1,106 +1,80 @@
 
-Default to using Bun instead of Node.js.
+# Project: Email Spoofing Detector — Chrome Extension
+
+This is a Chrome Extension (Manifest V3) built with Bun, React, TypeScript, and Tailwind CSS v4.
+
+## Stack
+
+- **Runtime & bundler**: Bun (not Node, not Vite, not Webpack)
+- **UI**: React 19 + TypeScript + Tailwind CSS v4
+- **Extension type**: Manifest V3
+- **Target browsers**: Chrome / Chromium only
+
+## Directory structure
+
+```
+src/
+  shared/types.ts         — shared TypeScript types (no Chrome APIs here)
+  popup/index.tsx         — React entry point for the popup
+  popup/Popup.tsx         — React UI component
+  content/index.ts        — Content script (runs in Gmail/Outlook tabs)
+  background/index.ts     — Service worker (background logic)
+  background/analyzer.ts  — Pure spoofing analysis logic
+public/
+  manifest.json           — MV3 manifest
+  popup.html              — Popup HTML shell
+  icons/                  — Extension icons (16, 32, 48, 128 px PNGs)
+build.ts                  — Bun build script
+dist/                     — Built output (load this into Chrome)
+```
+
+## Build & scripts
+
+```sh
+bun run build        # dev build (inline sourcemaps)
+bun run build:prod   # production build (minified)
+bun run dev          # watch mode
+bun run typecheck    # tsc --noEmit
+```
+
+The build script (`build.ts`) uses `Bun.build()` with `format: "iife"` — Chrome extensions
+require self-contained scripts with no ES module imports at runtime.
+
+## Bun rules
 
 - Use `bun <file>` instead of `node <file>` or `ts-node <file>`
 - Use `bun test` instead of `jest` or `vitest`
-- Use `bun build <file.html|file.ts|file.css>` instead of `webpack` or `esbuild`
-- Use `bun install` instead of `npm install` or `yarn install` or `pnpm install`
-- Use `bun run <script>` instead of `npm run <script>` or `yarn run <script>` or `pnpm run <script>`
-- Use `bunx <package> <command>` instead of `npx <package> <command>`
-- Bun automatically loads .env, so don't use dotenv.
+- Use `bun install` instead of `npm install` or `yarn`
+- Use `bun run <script>` instead of `npm run <script>`
+- Use `bunx <package>` instead of `npx <package>`
+- Bun auto-loads `.env` — don't use dotenv
+- Prefer `Bun.file` over `node:fs` readFile/writeFile
+- Use `Bun.$\`cmd\`` instead of execa
 
-## APIs
+## Styling
 
-- `Bun.serve()` supports WebSockets, HTTPS, and routes. Don't use `express`.
-- `bun:sqlite` for SQLite. Don't use `better-sqlite3`.
-- `Bun.redis` for Redis. Don't use `ioredis`.
-- `Bun.sql` for Postgres. Don't use `pg` or `postgres.js`.
-- `WebSocket` is built-in. Don't use `ws`.
-- Prefer `Bun.file` over `node:fs`'s readFile/writeFile
-- Bun.$`ls` instead of execa.
+- Use **Tailwind CSS v4** utility classes for all UI styling in the popup
+- Do NOT use inline `style={{}}` props — use Tailwind classes instead
+- The CSS entry point is `src/popup/index.css` with `@import "tailwindcss"`
+- `@tailwindcss/postcss` is the PostCSS plugin used by Bun's CSS bundler
 
-## Testing
+## TypeScript
 
-Use `bun test` to run tests.
+- `tsconfig.json` uses `"lib": ["ESNext", "DOM"]` — DOM types are available everywhere
+- `@types/chrome` is installed — all `chrome.*` APIs have full type support
+- Strict mode is enabled
+- `moduleResolution: "bundler"` — Bun handles resolution
 
-```ts#index.test.ts
-import { test, expect } from "bun:test";
+## Chrome extension conventions
 
-test("hello world", () => {
-  expect(1).toBe(1);
-});
-```
+- All cross-context communication uses the `ExtensionMessage` discriminated union from `src/shared/types.ts`
+- Content script → Background: `chrome.runtime.sendMessage`
+- Background → Storage: `chrome.storage.local`
+- Popup → Background: `chrome.runtime.sendMessage` with async `sendResponse`
+- Never import content script code into the popup or background, and vice versa
+- Icons live in `public/icons/` and are copied to `dist/icons/` at build time
 
-## Frontend
+## Permissions (manifest)
 
-Use HTML imports with `Bun.serve()`. Don't use `vite`. HTML imports fully support React, CSS, Tailwind.
-
-Server:
-
-```ts#index.ts
-import index from "./index.html"
-
-Bun.serve({
-  routes: {
-    "/": index,
-    "/api/users/:id": {
-      GET: (req) => {
-        return new Response(JSON.stringify({ id: req.params.id }));
-      },
-    },
-  },
-  // optional websocket support
-  websocket: {
-    open: (ws) => {
-      ws.send("Hello, world!");
-    },
-    message: (ws, message) => {
-      ws.send(message);
-    },
-    close: (ws) => {
-      // handle close
-    }
-  },
-  development: {
-    hmr: true,
-    console: true,
-  }
-})
-```
-
-HTML files can import .tsx, .jsx or .js files directly and Bun's bundler will transpile & bundle automatically. `<link>` tags can point to stylesheets and Bun's CSS bundler will bundle.
-
-```html#index.html
-<html>
-  <body>
-    <h1>Hello, world!</h1>
-    <script type="module" src="./frontend.tsx"></script>
-  </body>
-</html>
-```
-
-With the following `frontend.tsx`:
-
-```tsx#frontend.tsx
-import React from "react";
-import { createRoot } from "react-dom/client";
-
-// import .css files directly and it works
-import './index.css';
-
-const root = createRoot(document.body);
-
-export default function Frontend() {
-  return <h1>Hello, world!</h1>;
-}
-
-root.render(<Frontend />);
-```
-
-Then, run index.ts
-
-```sh
-bun --hot ./index.ts
-```
-
-For more information, read the Bun API docs in `node_modules/bun-types/docs/**.mdx`.
+- `activeTab`, `storage`, `tabs`, `notifications`
+- Host permissions: Gmail and Outlook URLs only

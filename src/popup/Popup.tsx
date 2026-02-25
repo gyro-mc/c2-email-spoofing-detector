@@ -1,49 +1,49 @@
 import React, { useEffect, useState } from "react";
 import type { ExtensionMessage, SpoofingAnalysis } from "../shared/types";
 
-// Simple inline styles — swap in CSS modules or Tailwind later
-const STATUS_COLORS: Record<string, string> = {
-  idle:     "#6b7280",
-  checking: "#3b82f6",
-  safe:     "#22c55e",
-  warning:  "#f59e0b",
-  danger:   "#ef4444",
+const STATUS_CLASSES: Record<SpoofingAnalysis["status"], { dot: string; text: string }> = {
+  idle:     { dot: "bg-gray-500",   text: "text-gray-400"   },
+  checking: { dot: "bg-blue-400",   text: "text-blue-400"   },
+  safe:     { dot: "bg-green-500",  text: "text-green-400"  },
+  warning:  { dot: "bg-amber-400",  text: "text-amber-400"  },
+  danger:   { dot: "bg-red-500",    text: "text-red-400"    },
+};
+
+const STATUS_SCORE_TEXT: Record<SpoofingAnalysis["status"], string> = {
+  idle:     "text-gray-400",
+  checking: "text-blue-400",
+  safe:     "text-green-400",
+  warning:  "text-amber-400",
+  danger:   "text-red-400",
+};
+
+const STATUS_LABEL: Record<SpoofingAnalysis["status"], string> = {
+  idle:     "No email open",
+  checking: "Analyzing…",
+  safe:     "Safe",
+  warning:  "Suspicious",
+  danger:   "Spoofing Detected",
 };
 
 function StatusBadge({ status }: { status: SpoofingAnalysis["status"] }) {
-  const color = STATUS_COLORS[status] ?? "#6b7280";
-  const label: Record<string, string> = {
-    idle: "No email open",
-    checking: "Analyzing…",
-    safe: "Safe",
-    warning: "Suspicious",
-    danger: "Spoofing Detected",
-  };
+  const { dot, text } = STATUS_CLASSES[status];
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-      <span
-        style={{
-          display: "inline-block",
-          width: 12,
-          height: 12,
-          borderRadius: "50%",
-          backgroundColor: color,
-        }}
-      />
-      <strong style={{ color }}>{label[status] ?? status}</strong>
+    <div className="flex items-center gap-2">
+      <span className={`inline-block w-3 h-3 rounded-full ${dot}`} />
+      <strong className={text}>{STATUS_LABEL[status]}</strong>
     </div>
   );
 }
 
 function CheckRow({ label, passed, detail }: { label: string; passed: boolean; detail: string }) {
   return (
-    <div style={{ display: "flex", alignItems: "flex-start", gap: 8, margin: "6px 0" }}>
-      <span style={{ color: passed ? "#22c55e" : "#ef4444", fontWeight: "bold", minWidth: 16 }}>
+    <div className="flex items-start gap-2 my-1.5">
+      <span className={`font-bold w-4 shrink-0 ${passed ? "text-green-400" : "text-red-400"}`}>
         {passed ? "✓" : "✗"}
       </span>
       <div>
-        <div style={{ fontWeight: 500 }}>{label}</div>
-        <div style={{ fontSize: 11, color: "#9ca3af" }}>{detail}</div>
+        <div className="font-medium text-gray-200">{label}</div>
+        <div className="text-[11px] text-gray-400">{detail}</div>
       </div>
     </div>
   );
@@ -63,30 +63,20 @@ export default function Popup() {
     });
   }, []);
 
-  const containerStyle: React.CSSProperties = {
-    width: 320,
-    padding: 16,
-    fontFamily: "system-ui, sans-serif",
-    fontSize: 13,
-    color: "#f3f4f6",
-    backgroundColor: "#1f2937",
-    minHeight: 80,
-  };
-
   if (loading) {
     return (
-      <div style={containerStyle}>
-        <p style={{ color: "#9ca3af" }}>Loading…</p>
+      <div className="w-80 p-4 bg-gray-800 min-h-20">
+        <p className="text-gray-400 text-sm">Loading…</p>
       </div>
     );
   }
 
   if (!analysis) {
     return (
-      <div style={containerStyle}>
-        <h2 style={{ margin: "0 0 8px", fontSize: 15 }}>Email Spoofing Detector</h2>
+      <div className="w-80 p-4 bg-gray-800 min-h-20 font-sans text-gray-100">
+        <h2 className="text-sm font-semibold mb-2">Email Spoofing Detector</h2>
         <StatusBadge status="idle" />
-        <p style={{ color: "#9ca3af", marginTop: 8 }}>
+        <p className="text-gray-400 text-xs mt-2">
           Open an email on a supported provider to begin analysis.
         </p>
       </div>
@@ -96,38 +86,28 @@ export default function Popup() {
   const { status, score, checks, detectedAt } = analysis;
 
   return (
-    <div style={containerStyle}>
-      <h2 style={{ margin: "0 0 12px", fontSize: 15 }}>Email Spoofing Detector</h2>
+    <div className="w-80 p-4 bg-gray-800 font-sans text-gray-100 text-[13px]">
+      <h2 className="text-sm font-semibold mb-3">Email Spoofing Detector</h2>
+
       <StatusBadge status={status} />
 
-      <div
-        style={{
-          margin: "12px 0",
-          padding: "8px 12px",
-          backgroundColor: "#374151",
-          borderRadius: 6,
-        }}
-      >
-        <div style={{ fontSize: 11, color: "#9ca3af", marginBottom: 4 }}>Risk Score</div>
-        <div style={{ fontSize: 22, fontWeight: "bold", color: STATUS_COLORS[status] }}>
+      <div className="my-3 px-3 py-2 bg-gray-700 rounded-md">
+        <div className="text-[11px] text-gray-400 mb-1">Risk Score</div>
+        <div className={`text-2xl font-bold ${STATUS_SCORE_TEXT[status]}`}>
           {score} / 100
         </div>
       </div>
 
-      <div style={{ marginTop: 12 }}>
-        <div style={{ fontSize: 11, color: "#9ca3af", marginBottom: 6 }}>Authentication Checks</div>
-        <CheckRow label="SPF"   passed={checks.spf.passed}   detail={checks.spf.detail} />
-        <CheckRow label="DKIM"  passed={checks.dkim.passed}  detail={checks.dkim.detail} />
-        <CheckRow label="DMARC" passed={checks.dmarc.passed} detail={checks.dmarc.detail} />
-        <CheckRow
-          label="From / Reply-To"
-          passed={checks.fromReplyToMismatch.passed}
-          detail={checks.fromReplyToMismatch.detail}
-        />
+      <div className="mt-3">
+        <div className="text-[11px] text-gray-400 mb-1.5">Authentication Checks</div>
+        <CheckRow label="SPF"            passed={checks.spf.passed}                detail={checks.spf.detail} />
+        <CheckRow label="DKIM"           passed={checks.dkim.passed}               detail={checks.dkim.detail} />
+        <CheckRow label="DMARC"          passed={checks.dmarc.passed}              detail={checks.dmarc.detail} />
+        <CheckRow label="From / Reply-To" passed={checks.fromReplyToMismatch.passed} detail={checks.fromReplyToMismatch.detail} />
       </div>
 
       {detectedAt && (
-        <div style={{ marginTop: 12, fontSize: 10, color: "#6b7280" }}>
+        <div className="mt-3 text-[10px] text-gray-500">
           Analyzed {new Date(detectedAt).toLocaleTimeString()}
         </div>
       )}
