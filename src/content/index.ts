@@ -1,14 +1,52 @@
 // Content script — runs on supported webmail pages.
-// Responsible for extracting email headers from the DOM and
-// forwarding them to the background service worker.
-
 import type { EmailHeaders, ExtensionMessage } from "../shared/types";
 
-function extractHeaders(): EmailHeaders | null {
-  // TODO: implement per-provider header extraction
-  // Gmail, Outlook etc. each expose headers differently in the DOM.
-  // Return null when no email is currently open.
-  return null;
+// Detect when the user opens an email and extract headers from the DOM (Gmail-focused)
+function extractGmailHeaders(): EmailHeaders | null {
+  const mainContent = document.querySelector('[role="main"]');
+  if (!mainContent) return null;
+
+  // Gmail specific: The "Show Details" arrow often populates a table with id ":..."
+  // It's brittle, but we can look for specific labels like "mailed-by", "signed-by".
+
+  const fromElement = document.querySelector("span[email]");
+  const from =
+    fromElement?.getAttribute("email") || fromElement?.textContent || undefined;
+
+  // Look for the "To me" details table contents if it's open/available in some way
+  // Or look for common patterns in the "to" line
+
+  // Try to find DKIM signature domain from "signed-by"
+  const signedBy = findTextByLabel("signed-by");
+  const mailedBy = findTextByLabel("mailed-by");
+
+  // If we can't find technical headers, we at least return the UI visible ones
+  if (!from) return null;
+
+  return {
+    from,
+    receivedSpf: mailedBy ? `pass (domain of ${mailedBy})` : undefined,
+    dkimSignature: signedBy ? `v=1; d=${signedBy}` : undefined,
+    // DMARC is harder to find in the UI unless "Details" is open
+  };
+}
+
+function findTextByLabel(label: string): string | undefined {
+  const elements = Array.from(document.querySelectorAll("tr, div"));
+  for (const el of elements) {
+    const content = el.textContent;
+    if (content?.toLowerCase().includes(label.toLowerCase())) {
+      // Find the sibling or child that contains the actual value
+      // Gmail usually puts it in a <td> or a <span>
+      const value = content
+        .split(new RegExp(label, "i"))[1]
+        ?.trim()
+        ?.split("\n")[0]
+        ?.trim();
+      if (value && value.length < 100) return value; // sanity check
+    }
+  }
+  return undefined;
 }
 
 function notifyBackground(headers: EmailHeaders): void {
@@ -16,11 +54,28 @@ function notifyBackground(headers: EmailHeaders): void {
   chrome.runtime.sendMessage(message);
 }
 
-// Observe DOM mutations so we react when the user opens an email
+// Observe DOM mutations to detect when an email is opened
+let lastAnalyzedId = "";
+
 const observer = new MutationObserver(() => {
-  const headers = extractHeaders();
-  if (headers) {
-    notifyBackground(headers);
+  // Gmail appends message IDs to the URL: #inbox/messageId
+  const messageId = window.location.hash;
+
+  if (messageId && messageId !== lastAnalyzedId && messageId.includes("/")) {
+    // Wait a bit for Gmail to render the details
+    setTimeout(() => {
+      const headers = extractGmailHeaders();
+      if (headers && headers.from !== undefined) {
+        lastAnalyzedId = messageId;
+        notifyBackground(headers);
+      }
+    }, 1500);
+  } else if (!messageId.includes("/")) {
+    // Potentially back in inbox
+    if (lastAnalyzedId !== "") {
+      lastAnalyzedId = "";
+      chrome.runtime.sendMessage({ type: "CLEAR_ANALYSIS" });
+    }
   }
 });
 

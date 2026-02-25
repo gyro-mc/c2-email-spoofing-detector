@@ -2,7 +2,11 @@
 // Receives headers from the content script, runs the spoofing
 // analysis, stores the result, and notifies the popup.
 
-import type { EmailHeaders, ExtensionMessage, SpoofingAnalysis } from "../shared/types";
+import type {
+  EmailHeaders,
+  ExtensionMessage,
+  SpoofingAnalysis,
+} from "../shared/types";
 import { analyzeHeaders } from "./analyzer";
 
 // Store the latest analysis per tab
@@ -38,10 +42,15 @@ chrome.runtime.onMessage.addListener(
         }
         const cached = analysisCache.get(tabId);
         if (cached) {
-          sendResponse({ type: "ANALYSIS_RESULT", payload: cached } satisfies ExtensionMessage);
+          sendResponse({
+            type: "ANALYSIS_RESULT",
+            payload: cached,
+          } satisfies ExtensionMessage);
         } else {
           chrome.storage.local.get(`analysis_${tabId}`, (result) => {
-            const stored = result[`analysis_${tabId}`] as SpoofingAnalysis | undefined;
+            const stored = result[`analysis_${tabId}`] as
+              | SpoofingAnalysis
+              | undefined;
             sendResponse({
               type: "ANALYSIS_RESULT",
               payload: stored ?? null,
@@ -51,16 +60,28 @@ chrome.runtime.onMessage.addListener(
       });
       return true; // keep message channel open for async sendResponse
     }
-  }
+
+    if (message.type === "CLEAR_ANALYSIS") {
+      const tabId = sender.tab?.id;
+      if (tabId != null) {
+        analysisCache.delete(tabId);
+        chrome.storage.local.remove(`analysis_${tabId}`);
+        updateBadge(tabId, "idle");
+      }
+    }
+  },
 );
 
 function updateBadge(tabId: number, status: SpoofingAnalysis["status"]): void {
-  const badgeMap: Record<SpoofingAnalysis["status"], { text: string; color: string }> = {
-    idle:     { text: "",  color: "#9ca3af" },
+  const badgeMap: Record<
+    SpoofingAnalysis["status"],
+    { text: string; color: string }
+  > = {
+    idle: { text: "", color: "#9ca3af" },
     checking: { text: "...", color: "#60a5fa" },
-    safe:     { text: "OK", color: "#22c55e" },
-    warning:  { text: "!",  color: "#f59e0b" },
-    danger:   { text: "!!",  color: "#ef4444" },
+    safe: { text: "OK", color: "#22c55e" },
+    warning: { text: "!", color: "#f59e0b" },
+    danger: { text: "!!", color: "#ef4444" },
   };
   const badge = badgeMap[status];
   chrome.action.setBadgeText({ text: badge.text, tabId });
@@ -72,7 +93,8 @@ function showDangerNotification(): void {
     type: "basic",
     iconUrl: "icons/icon48.png",
     title: "Spoofing Detected",
-    message: "This email shows strong signs of spoofing. Do not trust the sender.",
+    message:
+      "This email shows strong signs of spoofing. Do not trust the sender.",
     priority: 2,
   });
 }

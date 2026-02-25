@@ -1,8 +1,14 @@
 # Email Spoofing Detector — Chrome Extension
 
-A Chrome Extension (Manifest V3) that detects email spoofing attempts by analyzing authentication headers (SPF, DKIM, DMARC) on Gmail and Outlook.
+## Tech Stack
 
-Built with **Bun**, **React 19**, **TypeScript**, and **Tailwind CSS v4**.
+| Tool | Role |
+|---|---|
+| [Bun](https://bun.sh) | Runtime, package manager, bundler |
+| [React 19](https://react.dev) | Popup UI |
+| [TypeScript](https://www.typescriptlang.org) | Type safety across all contexts |
+| [Tailwind CSS v4](https://tailwindcss.com) | Popup styling |
+| Chrome Extension Manifest V3 | Extension format |
 
 ---
 
@@ -11,147 +17,105 @@ Built with **Bun**, **React 19**, **TypeScript**, and **Tailwind CSS v4**.
 ```
 c2-email-spoofing-detector/
 │
-├── public/                         # Static assets copied into dist/ as-is
-│   ├── manifest.json               # Chrome Extension MV3 manifest (permissions, entry points)
-│   ├── popup.html                  # HTML shell that loads the React popup
-│   └── icons/                      # Extension icons (16, 32, 48, 128px PNGs)
-│
 ├── src/
 │   ├── shared/
-│   │   └── types.ts                # Shared TypeScript types used by all three contexts
-│   │                               # (SpoofingAnalysis, EmailHeaders, ExtensionMessage)
+│   │   └── types.ts          # Shared TypeScript types across all contexts
 │   │
 │   ├── popup/
-│   │   ├── index.tsx               # React entry point — mounts <Popup /> into #root
-│   │   ├── index.css               # Tailwind CSS entry point (@import "tailwindcss")
-│   │   └── Popup.tsx               # React UI — shows status, risk score, and check results
+│   │   ├── index.tsx         # React entry point — mounts the popup UI
+│   │   ├── index.css         # Tailwind CSS entry point
+│   │   └── Popup.tsx         # React UI component
 │   │
 │   ├── content/
-│   │   └── index.ts                # Content script — runs inside Gmail/Outlook tabs
-│   │                               # Observes DOM, extracts email headers, sends to background
+│   │   └── index.ts          # Content script — runs inside Gmail/Outlook tabs
 │   │
 │   └── background/
-│       ├── index.ts                # Service worker — receives headers, runs analysis,
-│       │                           # caches results, updates badge, fires notifications
-│       └── analyzer.ts             # Pure analysis logic — checks SPF, DKIM, DMARC,
-│                                   # and From/Reply-To domain mismatch
+│       ├── index.ts          # Service worker — background logic
+│       └── analyzer.ts       # Spoofing analysis logic
 │
-├── dist/                           # Built output — load this folder into Chrome
-│   ├── manifest.json
-│   ├── popup.html
-│   ├── popup.js                    # Bundled React popup (IIFE)
-│   ├── popup.css                   # Generated Tailwind CSS
-│   ├── content.js                  # Bundled content script (IIFE)
-│   ├── background.js               # Bundled service worker (IIFE)
-│   └── icons/
+├── public/
+│   ├── manifest.json         # Chrome MV3 manifest (permissions, entry points)
+│   ├── popup.html            # HTML shell that loads the React popup
+│   └── icons/                # Extension icons (16, 32, 48, 128px)
 │
-├── .github/
-│   └── workflows/
-│       └── build.yml               # CI — typechecks and builds on every push to main
-│
-├── build.ts                        # Bun build script — bundles JS via Bun, CSS via PostCSS
-├── postcss.config.js               # PostCSS config — wires in @tailwindcss/postcss plugin
-├── tsconfig.json                   # TypeScript config (strict, DOM lib, bundler resolution)
-├── CLAUDE.md                       # AI agent instructions for this project
-└── package.json
+├── dist/                     # Built output — load this folder into Chrome
+├── build.ts                  # Bun build script
+├── postcss.config.js         # PostCSS config for Tailwind
+└── tsconfig.json             # TypeScript config
 ```
 
 ---
 
-## How the three contexts communicate
+## How the Extension Works
 
-Chrome extensions are split into three isolated contexts that cannot share memory directly. They communicate via message passing:
+Chrome extensions run in three separate isolated contexts that cannot share memory. They communicate via message passing:
 
 ```
-Gmail/Outlook tab                background service worker          popup UI
-─────────────────                ────────────────────────           ────────
-content/index.ts                 background/index.ts                popup/Popup.tsx
-        │                                │                                │
-        │  HEADERS_FOUND {headers}       │                                │
-        │ ─────────────────────────────> │                                │
-        │                                │ analyzeHeaders()               │
-        │                                │ cache result                   │
-        │                                │ update badge                   │
-        │                                │                                │
-        │                                │       GET_ANALYSIS             │
-        │                                │ <───────────────────────────── │
-        │                                │       ANALYSIS_RESULT          │
-        │                                │ ──────────────────────────────>│
-        │                                │                                │ render UI
+Gmail/Outlook tab          background service worker        popup UI
+─────────────────          ────────────────────────         ────────
+content/index.ts           background/index.ts              popup/Popup.tsx
+       │                             │                            │
+       │  sends email headers        │                            │
+       │ ─────────────────────────>  │                            │
+       │                             │  analyzes headers          │
+       │                             │  caches result             │
+       │                             │  updates badge             │
+       │                             │                            │
+       │                             │  <─── requests result ──── │
+       │                             │  ────── sends result ────> │
+       │                             │                            │ renders UI
 ```
+
+- **Content script** — injected into Gmail/Outlook, reads email data from the page
+- **Background service worker** — receives data from content script, runs analysis, stores results, updates the extension badge
+- **Popup UI** — shown when you click the extension icon, fetches the cached result from the background and displays it
 
 ---
 
-## Spoofing analysis
+## Note on Current Code
 
-`src/background/analyzer.ts` runs four checks on every email:
-
-| Check | What it looks for | Header examined |
-|---|---|---|
-| **SPF** | Did the sending server pass SPF? | `Received-SPF` |
-| **DKIM** | Is a DKIM signature present? | `DKIM-Signature` |
-| **DMARC** | Did the email pass DMARC policy? | `X-DMARC-Result` |
-| **From / Reply-To mismatch** | Do the From and Reply-To domains differ? | `From`, `Reply-To` |
-
-Each failed check adds 25 to the risk score (0–100). The final status is:
-
-| Score | Status |
-|---|---|
-| 0 | Safe |
-| 25–50 | Warning |
-| 75–100 | Danger |
+The logic currently implemented in this repo is a **template/placeholder only**. It is not the final product and does not reflect the actual intended design. Feel free to rethink and reimplement the detection logic, UI, and structure as you see fit.
 
 ---
 
-## Getting started
+## Why This Workflow
 
-### Install dependencies
+Chrome extensions loaded via "Load unpacked" in developer mode do not auto-update from a remote server. There is no way for a CI/CD pipeline to push changes directly into a teammate's browser. Each developer must manually pull the latest code, rebuild, and reload the extension in Chrome. This workflow ensures everyone is always testing the latest version from `develop` without breaking each other's work.
 
+---
+
+## Team Development Workflow
+
+**Step 1 — Create your branch from `develop`**
 ```sh
-bun install
+git checkout develop
+git pull origin develop
+git checkout -b your-feature-name
 ```
 
-### Development build (with sourcemaps)
-
+**Step 2 — Do your work, then build and test locally**
 ```sh
 bun run build
 ```
+- Open `chrome://extensions` in Chrome
+- Enable **Developer mode** (toggle top-right)
+- Click **Load unpacked** and select the `dist/` folder (first time only)
+- Click the reload icon on the extension after every build
 
-### Production build (minified, no sourcemaps)
-
+**Step 3 — Push your branch and open a PR into `develop`**
 ```sh
-bun run build:prod
+git add .
+git commit -m "your message"
+git push origin your-feature-name
 ```
+Then open a Pull Request on GitHub targeting the `develop` branch.
 
-### Watch mode (rebuilds on file change)
-
+**Step 4 — After your PR is merged, sync `develop` and test again**
 ```sh
-bun run dev
+git checkout develop
+git pull origin develop
+bun run build
 ```
-
-### Type check only
-
-```sh
-bun run typecheck
-```
-
-### Load the extension in Chrome
-
-1. Run `bun run build`
-2. Open `chrome://extensions`
-3. Enable **Developer mode** (toggle in the top right)
-4. Click **Load unpacked**
-5. Select the `dist/` folder
-
----
-
-## Tech stack
-
-| Tool | Role |
-|---|---|
-| [Bun](https://bun.sh) | Runtime, package manager, JS bundler |
-| [React 19](https://react.dev) | Popup UI |
-| [TypeScript](https://www.typescriptlang.org) | Type safety across all contexts |
-| [Tailwind CSS v4](https://tailwindcss.com) | Popup styling |
-| [PostCSS](https://postcss.org) | CSS processing pipeline |
-| [@tailwindcss/postcss](https://tailwindcss.com/docs/installation/using-postcss) | Tailwind v4 PostCSS plugin |
+- Go to `chrome://extensions`
+- Click the reload icon on the extension
+- Test that everything works
